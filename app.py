@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 import os
 import time
@@ -10,6 +10,7 @@ from langchain.chains import create_retrieval_chain
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
 
 app = Flask(__name__)
 
@@ -31,7 +32,7 @@ def initialize_session_state():
             initialize_session_state.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
             initialize_session_state.loader = PyPDFDirectoryLoader("./pdfFiles")  # Data Ingestion
             initialize_session_state.docs = initialize_session_state.loader.load()  # Document Loading
-            initialize_session_state.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)  # Chunk Creation
+            initialize_session_state.text_splitter = RecursiveCharacterTextSplitter(chunk_size=6000, chunk_overlap=1000)  # Chunk Creation
             initialize_session_state.final_documents = initialize_session_state.text_splitter.split_documents(initialize_session_state.docs[:20])  # Splitting
             initialize_session_state.vectors = FAISS.from_documents(initialize_session_state.final_documents, initialize_session_state.embeddings)  # Vector creation
             print("Session state initialized successfully.")
@@ -65,9 +66,15 @@ def retrieve_documents(input_prompt):
         response = retrieval_chain.invoke({'input': input_prompt})
         response_time = time.process_time() - start
 
-        # Debug: Check if response is obtained
-        print(f"Response: {response}")
+        # Check if no answer found
+        if response.get('answer', '') == 'No input provided':
+            return {
+                'response_time': response_time,
+                'answer': f'For more information, visit http://vcet.edu.in',
+                'context': []
+            }
 
+        # Return normal response
         return {
             'response_time': response_time,
             'answer': response.get('answer', 'No answer found.'),
@@ -90,6 +97,28 @@ def predict():
     data = request.get_json()
     input_prompt = data.get('message', '')
 
+    # Define greeting keywords and responses
+    greetings = {
+        "Hi": "Hello! How can I assist you today?",
+        "hi": "Hello! How can I assist you today?",
+        "Hello": "Hi there! What can I do for you?",
+        "hello": "Hi there! What can I do for you?",
+        "thanks": "You're welcome! Is there anything else I can help with?",
+        "Thanks": "You're welcome! Is there anything else I can help with?",
+        "thank you": "You're welcome! Is there anything else I can help with?",
+        "Thank you": "You're welcome! Is there anything else I can help with?",
+        "goodbye": "Goodbye! Have a great day!",
+        "Goodbye": "Goodbye! Have a great day!",
+        "Bye": "Goodbye! Have a great day!",
+        "bye": "Goodbye! Have a great day!"
+    }
+
+    # Check for greetings
+    for greeting in greetings:
+        if greeting in input_prompt:
+            return jsonify({'answer': greetings[greeting]})
+
+    # Process input if not a greeting
     if input_prompt:
         response = retrieve_documents(input_prompt)
         return jsonify({
@@ -97,7 +126,9 @@ def predict():
             'response_time': response['response_time'],
             'context': response['context']
         })
-    return jsonify({'answer': 'No input provided.'})
+
+    return jsonify({'answer': 'No input provided'})
 
 if __name__ == "__main__":
     app.run(debug=True)
+
